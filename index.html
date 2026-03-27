@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>금연 도우미 - 단계별 절연 시스템</title>
+    <!-- 외부 라이브러리 로드 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap');
+        body { font-family: 'Noto Sans KR', sans-serif; background-color: #f8fafc; }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+
+    <div id="app" class="max-w-4xl mx-auto space-y-6">
+        <!-- 헤더 -->
+        <header class="text-center py-4">
+            <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">금연 계획 관리 시스템</h1>
+            <p class="text-gray-500 mt-2">과학적으로 간격을 늘려 흡연 의존도를 낮춥니다</p>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- 왼쪽 컨트롤 패널 -->
+            <div class="md:col-span-2 space-y-6">
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 text-center">
+                    <h2 class="text-sm font-semibold text-gray-400 uppercase mb-2">현재 상태</h2>
+                    <div id="statusText" class="text-lg font-medium mb-4 text-blue-500">데이터베이스 연결 중...</div>
+                    
+                    <div class="py-8 bg-gray-50 rounded-xl mb-6">
+                        <div id="countdown" class="text-6xl font-mono font-bold text-indigo-600">00:00</div>
+                        <p class="text-xs text-gray-400 mt-2 uppercase tracking-widest">다음 흡연 가능까지 남은 시간</p>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4 mb-6 text-sm">
+                        <div class="p-3 bg-indigo-50 rounded-lg">
+                            <div class="text-gray-500">현재 대기 시간</div>
+                            <div class="text-xl font-bold text-indigo-700"><span id="currentCooldown">30</span> 분</div>
+                        </div>
+                        <div class="p-3 bg-blue-50 rounded-lg">
+                            <div class="text-gray-500">다음 허용 시간</div>
+                            <div id="nextTime" class="text-xl font-bold text-blue-700">--:--</div>
+                        </div>
+                    </div>
+
+                    <button id="smokeBtn" disabled class="w-full py-4 px-6 rounded-xl text-white font-bold text-lg transition-all transform active:scale-95 shadow-lg bg-gray-400 cursor-not-allowed">
+                        로딩 중...
+                    </button>
+                    
+                    <p class="text-xs text-gray-400 mt-4 text-left leading-relaxed">
+                        * 규칙: 흡연 시마다 대기 시간이 30분씩 증가합니다. 12시간 동안 흡연하지 않으면 대기 시간이 30분으로 초기화됩니다.
+                    </p>
+                </div>
+
+                <!-- 차트 섹션 -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                    <h3 class="font-bold text-gray-800 mb-4 flex items-center italic">📊 전 세계 흡연 관련 사망자 추이 (추정치)</h3>
+                    <canvas id="deathChart" height="120"></canvas>
+                    <p class="text-[10px] text-gray-400 mt-4 text-center">출처: Global Burden of Disease (GBD) 통계 및 예측</p>
+                </div>
+            </div>
+
+            <!-- 오른쪽 기록 패널 -->
+            <div class="md:col-span-1 border-l pl-2">
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 h-full max-h-[600px] flex flex-col">
+                    <h3 class="font-bold text-gray-800 mb-4 border-b pb-2">흡연 기록</h3>
+                    <div id="historyList" class="flex-1 overflow-y-auto space-y-2 text-sm custom-scrollbar">
+                        <!-- 기록 항목이 여기에 표시됩니다 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <footer class="text-center text-gray-400 text-sm py-4">
+            건강을 위한 첫걸음, 당신의 도전을 응원합니다.
+        </footer>
+    </div>
+
+    <!-- Firebase 모듈 스크립트 -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, Timestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        // ==========================================
+        // 1. 여기에 본인의 Firebase 설정을 입력하세요
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyDIEBg_TKlWwTT9fKWOj8a0ReI_wDFYyNw",
+  authDomain: "jieyan1-3e91d.firebaseapp.com",
+  projectId: "jieyan1-3e91d",
+  storageBucket: "jieyan1-3e91d.firebasestorage.app",
+  messagingSenderId: "818469707935",
+  appId: "1:818469707935:web:153eaf17bf8e6e9a2802aa"
+        };
+
+        // 초기화
+        let db;
+        try {
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            console.log("Firebase Connected");
+        } catch (error) {
+            console.error("Firebase Error:", error);
+            document.getElementById('statusText').innerText = "설정 오류가 발생했습니다.";
+        }
+
+        const logsCol = collection(db, "smoke_logs");
+        let lastRecord = null;
+
+        // 차트 초기화
+        const initChart = () => {
+            const ctx = document.getElementById('deathChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['2015', '2017', '2019', '2021', '2023', '2025'],
+                    datasets: [{
+                        label: '사망자 수 (백만 명)',
+                        data: [6.4, 7.1, 7.7, 8.1, 8.7, 9.2],
+                        borderColor: '#ef4444',
+                        tension: 0.4,
+                        fill: true,
+                        backgroundColor: 'rgba(239, 68, 68, 0.1)'
+                    }]
+                },
+                options: {
+                    plugins: { legend: { labels: { font: { family: 'Noto Sans KR' } } } }
+                }
+            });
+        };
+
+        // UI 업데이트 로직
+        function updateUI() {
+            const btn = document.getElementById('smokeBtn');
+            const statusText = document.getElementById('statusText');
+            const countdownEl = document.getElementById('countdown');
+            const nextTimeEl = document.getElementById('nextTime');
+            const cooldownEl = document.getElementById('currentCooldown');
+
+            if (!lastRecord) {
+                btn.disabled = false;
+                btn.innerText = "첫 흡연 기록하기";
+                btn.className = "w-full py-4 px-6 rounded-xl text-white font-bold text-lg bg-indigo-600 hover:bg-indigo-700 shadow-lg";
+                statusText.innerText = "시작할 준비가 되셨나요?";
+                statusText.className = "text-lg font-medium mb-4 text-indigo-500";
+                return;
+            }
+
+            const now = Date.now();
+            const nextAllowed = lastRecord.nextAllowedTime.toMillis();
+            const diff = nextAllowed - now;
+
+            cooldownEl.innerText = lastRecord.cooldown;
+
+            if (diff <= 0) {
+                btn.disabled = false;
+                btn.innerText = "방금 한 대 피웠습니다";
+                btn.className = "w-full py-4 px-6 rounded-xl text-white font-bold text-lg bg-indigo-600 hover:bg-indigo-700 shadow-lg active:scale-95";
+                statusText.innerText = "지금은 흡연이 가능합니다";
+                statusText.className = "text-lg font-medium mb-4 text-green-600";
+                countdownEl.innerText = "READY";
+                nextTimeEl.innerText = "시간 달성";
+            } else {
+                btn.disabled = true;
+                btn.innerText = "대기 중...";
+                btn.className = "w-full py-4 px-6 rounded-xl text-white font-bold text-lg bg-gray-400 cursor-not-allowed shadow-none";
+                statusText.innerText = "조금만 더 참아보세요!";
+                statusText.className = "text-lg font-medium mb-4 text-red-500";
+                
+                const mins = Math.floor(diff / 1000 / 60);
+                const secs = Math.floor((diff / 1000) % 60);
+                countdownEl.innerText = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                nextTimeEl.innerText = new Date(nextAllowed).toLocaleTimeString('ko-KR', {hour: '2-digit', minute:'2-digit'});
+            }
+        }
+
+        // 데이터 기록
+        window.logSmoke = async () => {
+            const now = Date.now();
+            let nextCooldown = 30;
+
+            if (lastRecord) {
+                const lastTime = lastRecord.timestamp.toMillis();
+                // 12시간 리셋 로직
+                if (now - lastTime > 12 * 60 * 60 * 1000) {
+                    nextCooldown = 30;
+                } else {
+                    nextCooldown = lastRecord.cooldown + 30;
+                }
+            }
+
+            const nextAllowedDate = new Date(now + nextCooldown * 60 * 1000);
+
+            try {
+                await addDoc(logsCol, {
+                    timestamp: serverTimestamp(),
+                    cooldown: nextCooldown,
+                    nextAllowedTime: Timestamp.fromDate(nextAllowedDate)
+                });
+            } catch (e) {
+                console.error("Save Error", e);
+                alert("데이터 저장에 실패했습니다. Firestore 규칙을 확인하세요.");
+            }
+        };
+
+        // 버튼 이벤트 바인딩
+        document.getElementById('smokeBtn').addEventListener('click', window.logSmoke);
+
+        // Firestore 실시간 리스너
+        const q = query(logsCol, orderBy("timestamp", "desc"), limit(20));
+        onSnapshot(q, (snapshot) => {
+            const listEl = document.getElementById('historyList');
+            listEl.innerHTML = '';
+            
+            if (snapshot.empty) {
+                listEl.innerHTML = '<div class="text-gray-400 text-center py-10">기록이 없습니다</div>';
+            }
+
+            snapshot.docs.forEach((doc, index) => {
+                const data = doc.data();
+                if (index === 0) lastRecord = data;
+
+                const timeStr = data.timestamp ? new Date(data.timestamp.toMillis()).toLocaleString('ko-KR') : '동기화 중...';
+                const div = document.createElement('div');
+                div.className = "p-3 bg-gray-50 rounded-lg flex justify-between items-center border border-gray-100";
+                div.innerHTML = `
+                    <span class="text-gray-600 text-[12px]">${timeStr}</span>
+                    <span class="font-bold text-indigo-600 tracking-tight">${data.cooldown}분 대기</span>
+                `;
+                listEl.appendChild(div);
+            });
+            updateUI();
+        });
+
+        // 1초마다 UI 갱신 (카운트다운)
+        setInterval(updateUI, 1000);
+        initChart();
+    </script>
+    
+    <style>
+        /* 커스텀 스크롤바 */
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+    </style>
+</body>
+</html>
